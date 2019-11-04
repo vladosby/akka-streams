@@ -1,11 +1,8 @@
 package com.streams.example.part3
-
 import akka.NotUsed
 import akka.actor.ActorSystem
 import akka.stream.{ActorMaterializer, ClosedShape}
 import akka.stream.scaladsl.{Balance, Broadcast, Flow, GraphDSL, Merge, RunnableGraph, Sink, Source, Zip}
-
-import scala.language.postfixOps
 
 object GraphBasics extends App {
 
@@ -13,87 +10,101 @@ object GraphBasics extends App {
   implicit val materializer = ActorMaterializer()
 
   val input = Source(1 to 1000)
-  val increment = Flow[Int].map(_ + 1)
-  val multiplier = Flow[Int].map(_ * 10)
+  val incrementer = Flow[Int].map(x => x + 1) // hard computation
+  val multiplier = Flow[Int].map(x => x * 10) // hard computation
   val output = Sink.foreach[(Int, Int)](println)
 
+  // step 1 - setting up the fundamentals for the graph
   val graph = RunnableGraph.fromGraph(
+    GraphDSL.create() { implicit builder: GraphDSL.Builder[NotUsed] => // builder = MUTABLE data structure
+      import GraphDSL.Implicits._ // brings some nice operators into scope
 
-    GraphDSL.create() {implicit builder: GraphDSL.Builder[NotUsed] =>
-    import GraphDSL.Implicits._
+      // step 2 - add the necessary components of this graph
+      val broadcast = builder.add(Broadcast[Int](2)) // fan-out operator
+    val zip = builder.add(Zip[Int, Int]) // fan-in operator
 
-    val broadcast = builder.add(Broadcast[Int](2))
-    val zip = builder.add(Zip[Int, Int])
+      // step 3 - tying up the components
+      input ~> broadcast
 
-    input ~> broadcast
+      broadcast.out(0) ~> incrementer ~> zip.in0
+      broadcast.out(1) ~> multiplier  ~> zip.in1
 
-    broadcast.out(0) ~> increment ~> zip.in0
-    broadcast.out(1) ~> multiplier ~> zip.in1
+      zip.out ~> output
 
-    zip.out ~> output
+      // step 4 - return a closed shape
+      ClosedShape // FREEZE the builder's shape
+      // shape
+    } // graph
+  ) // runnable graph
 
-    ClosedShape
-  })
-
-//  graph.run()
+  //  graph.run() // run the graph and materialize it
 
   /**
     * exercise 1: feed a source into 2 sinks at the same time (hint: use a broadcast)
     */
 
-  val output1 = Sink.foreach[(Int)](println)
-  val output2 = Sink.foreach[(Int)](println)
+  val firstSink = Sink.foreach[Int](x => println(s"First sink: $x"))
+  val secondSink = Sink.foreach[Int](x => println(s"Second sink: $x"))
 
-
-  val graph2 = RunnableGraph.fromGraph(
-
-    GraphDSL.create() {implicit builder: GraphDSL.Builder[NotUsed] =>
+  // step 1
+  val sourceToTwoSinksGraph = RunnableGraph.fromGraph(
+    GraphDSL.create() { implicit builder =>
       import GraphDSL.Implicits._
 
+      // step 2 - declaring the components
       val broadcast = builder.add(Broadcast[Int](2))
 
-      input ~> broadcast
+      // step 3 - tying up the components
+      input ~>  broadcast ~> firstSink  // implicit port numbering
+      broadcast ~> secondSink
+      //      broadcast.out(0) ~> firstSink
+      //      broadcast.out(1) ~> secondSink
 
-      broadcast.out(0) ~> output1
-      broadcast.out(1) ~> output2
-
+      // step 4
       ClosedShape
-    })
-
-//  graph2.run()
+    }
+  )
 
   /**
     * exercise 2: balance
     */
 
-
   import scala.concurrent.duration._
-  val fastSource = Source(1 to 1000).throttle(5, 1 second)
-  val slowSource = Source(1000 to 2000).throttle(2, 1 second)
+  val fastSource = input.throttle(5, 1 second)
+  val slowSource = input.throttle(2, 1 second)
 
-  val output12 = Sink.foreach[(Int)](r => println(s"Result 1: $r"))
-  val output22 = Sink.foreach[(Int)](r => println(s"Result 2: $r"))
+  val sink1 = Sink.fold[Int, Int](0)((count, _) => {
+    println(s"Sink 1 number of elements: $count")
+    count + 1
+  })
 
-  val graph3 = RunnableGraph.fromGraph(
+  val sink2 = Sink.fold[Int, Int](0)((count, _) => {
+    println(s"Sink 2 number of elements: $count")
+    count + 1
+  })
 
-    GraphDSL.create() {implicit builder: GraphDSL.Builder[NotUsed] =>
+  // step 1
+  val balanceGraph = RunnableGraph.fromGraph(
+    GraphDSL.create() { implicit builder =>
       import GraphDSL.Implicits._
 
+
+      // step 2 -- declare components
       val merge = builder.add(Merge[Int](2))
       val balance = builder.add(Balance[Int](2))
 
+
+      // step 3 -- tie them up
+      fastSource ~> merge ~>  balance ~> sink1
       slowSource ~> merge
-      fastSource ~> merge
+      balance ~> sink2
 
-      merge ~> balance
-
-      balance ~> output12
-      balance ~> output22
-
-
+      // step 4
       ClosedShape
-    })
+    }
+  )
 
-    graph3.run()
+  balanceGraph.run()
+
 
 }
