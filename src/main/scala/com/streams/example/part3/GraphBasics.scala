@@ -33,6 +33,30 @@ object GraphBasics extends App {
     ClosedShape
   })
 
-  graph.run()
+//  graph.run()
 
+  /**
+    * exercise 1: feed a source into 2 sinks at the same time (hint: use a broadcast)
+    */
+
+  val output1 = Sink.foreach[(Int)](println)
+  val output2 = Sink.foreach[(Int)](println)
+
+
+  val graph2 = RunnableGraph.fromGraph(
+
+    GraphDSL.create() {implicit builder: GraphDSL.Builder[NotUsed] =>
+      import GraphDSL.Implicits._
+
+      val broadcast = builder.add(Broadcast[Int](2))
+
+      input ~> broadcast
+
+      broadcast.out(0) ~> output1
+      broadcast.out(1) ~> output2
+
+      ClosedShape
+    })
+
+  graph2.run()
 }
