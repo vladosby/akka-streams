@@ -4,6 +4,8 @@ import akka.actor.ActorSystem
 import akka.stream.{ActorMaterializer, ClosedShape}
 import akka.stream.scaladsl.{Balance, Broadcast, Flow, GraphDSL, Merge, RunnableGraph, Sink, Source, Zip}
 
+import scala.language.postfixOps
+
 object GraphBasics extends App {
 
   implicit val system = ActorSystem("GraphBasics")
